@@ -931,24 +931,58 @@ contains
     ! for use in diagnostics (to obtain frequency)
     phi_old = phi
 
+    ! Flag which is set to true once we've taken a step without needing to
+    ! reset dt.
+    time_advance_successful = .false.
+    ! if CFL condition is violated by nonlinear term
+    ! then must modify time step size and restart time step
+    ! assume false and test.
 
-    ! reverse the order of operations every time step
-    ! as part of alternating direction operator splitting
-    ! this is needed to ensure 2nd order accuracy in time
-    if (mod(istep,2)==1 .or. .not.flip_flop) then
-       ! advance the explicit parts of the GKE
-       call advance_explicit (gnew)
 
-       ! enforce periodicity for zonal mode
-!    if (zonal_mode(1)) gnew(1,:,-nzgrid,:) = gnew(1,:,nzgrid,:)
 
-       ! use operator splitting to separately evolve
-       ! all terms treated implicitly
-       if (.not.fully_explicit) call advance_implicit (istep, phi, apar, gnew)
-    else
-       if (.not.fully_explicit) call advance_implicit (istep, phi, apar, gnew)
-       call advance_explicit (gnew)
-    end if
+    ! Perform the Lie or flip-flopping step until we've done it without the
+    ! timestep changing.
+    do while (.not. time_advance_successful)
+      ! If we've already attempted a time advance then we've updated gnew,
+      ! so reset it now.
+      gnew = gold
+      ! Ensure fields are consistent with gnew.
+      call advance_fields (gnew, phi, apar, dist='gbar')
+
+      ! if CFL condition is violated by nonlinear term
+      ! then must modify time step size and restart time step
+      ! assume false and test
+      ! We don't want to do any operations after dt is reset (we discard any
+      ! updates to g and the timestep again).
+      restart_time_step = .false. ! Becomes true if we reset dt
+
+      ! reverse the order of operations every time step
+      ! as part of alternating direction operator splitting
+      ! this is needed to ensure 2nd order accuracy in time
+      if (mod(istep,2)==1 .or. .not.flip_flop) then
+         ! advance the explicit parts of the GKE
+         call advance_explicit (gnew, restart_time_step)
+
+         ! enforce periodicity for zonal mode
+  !    if (zonal_mode(1)) gnew(1,:,-nzgrid,:) = gnew(1,:,nzgrid,:)
+
+         ! use operator splitting to separately evolve
+         ! all terms treated implicitly
+         if (.not. restart_time_step .and. .not.fully_explicit) call advance_implicit (istep, phi, apar, gnew)
+      else
+         if (.not.fully_explicit) call advance_implicit (istep, phi, apar, gnew)
+         call advance_explicit (gnew, restart_time_step)
+      end if
+
+      if (.not. restart_time_step) then
+        time_advance_successful = .true.
+      else
+        ! We're discarding changes to gnew and starting the timestep again, so fields will
+        ! need to be re-calculated
+        fields_updated = .false.
+      end if
+
+    end do
 
     if(remove_zero_projection) then
       call project_out_zero(gold, gnew)
@@ -967,7 +1001,7 @@ contains
   end subroutine advance_stella
 
 !  subroutine advance_explicit (phi, apar, g)
-  subroutine advance_explicit (g)
+  subroutine advance_explicit (g, restart_time_step)
 
     use mp, only: proc0
     use job_manage, only: time_message
@@ -981,6 +1015,7 @@ contains
 
 !    complex, dimension (:,:,-nzgrid:), intent (in out) :: phi, apar
     complex, dimension (:,:,-nzgrid:,:,vmu_lo%llim_proc:), intent (in out) :: g
+    logical, intent(in out) :: restart_time_step
 
     integer :: ivmu, iv, sgn, iky
 
@@ -990,13 +1025,13 @@ contains
     select case (explicit_option_switch)
     case (explicit_option_rk2)
        ! SSP RK2
-       call advance_explicit_rk2 (g)
+       call advance_explicit_rk2 (g, restart_time_step)
     case (explicit_option_rk3)
        ! default is SSP RK3
-       call advance_explicit_rk3 (g)
+       call advance_explicit_rk3 (g, restart_time_step)
     case (explicit_option_rk4)
        ! RK4
-       call advance_explicit_rk4 (g)
+       call advance_explicit_rk4 (g, restart_time_step)
     end select
 
     ! enforce periodicity for periodic (including zonal) modes
@@ -1017,7 +1052,7 @@ contains
   end subroutine advance_explicit
 
   ! strong stability-preserving RK2
-  subroutine advance_explicit_rk2 (g)
+  subroutine advance_explicit_rk2 (g, restart_time_step)
 
     use dist_fn_arrays, only: g0, g1
     use zgrid, only: nzgrid
@@ -1027,14 +1062,9 @@ contains
     implicit none
 
     complex, dimension (:,:,-nzgrid:,:,vmu_lo%llim_proc:), intent (in out) :: g
+    logical, intent(in out) :: restart_time_step
 
     integer :: icnt
-    logical :: restart_time_step
-
-    ! if CFL condition is violated by nonlinear term
-    ! then must modify time step size and restart time step
-    ! assume false and test
-    restart_time_step = .false.
 
     if(RK_step) call mb_communicate (g)
 
@@ -1067,7 +1097,7 @@ contains
   end subroutine advance_explicit_rk2
 
   ! strong stability-preserving RK3
-  subroutine advance_explicit_rk3 (g)
+  subroutine advance_explicit_rk3 (g, restart_time_step)
 
     use dist_fn_arrays, only: g0, g1, g2
     use zgrid, only: nzgrid
@@ -1077,14 +1107,9 @@ contains
     implicit none
 
     complex, dimension (:,:,-nzgrid:,:,vmu_lo%llim_proc:), intent (in out) :: g
+    logical, intent(in out) :: restart_time_step
 
     integer :: icnt
-    logical :: restart_time_step
-
-    ! if CFL condition is violated by nonlinear term
-    ! then must modify time step size and restart time step
-    ! assume false and test
-    restart_time_step = .false.
 
     if(RK_step) call mb_communicate (g)
 
@@ -1119,7 +1144,7 @@ contains
 
   end subroutine advance_explicit_rk3
 
-  subroutine advance_explicit_rk4 (g)
+  subroutine advance_explicit_rk4 (g, restart_time_step)
 
     use dist_fn_arrays, only: g0, g1, g2, g3
     use zgrid, only: nzgrid
@@ -1129,14 +1154,9 @@ contains
     implicit none
 
     complex, dimension (:,:,-nzgrid:,:,vmu_lo%llim_proc:), intent (in out) :: g
+    logical, intent(in out) :: restart_time_step
 
     integer :: icnt
-    logical :: restart_time_step
-
-    ! if CFL condition is violated by nonlinear term
-    ! then must modify time step size and restart time step
-    ! assume false and test
-    restart_time_step = .false.
 
     if(RK_step) call mb_communicate(g)
 
@@ -1317,7 +1337,7 @@ contains
     complex, dimension (:,:,-nzgrid:,:,vmu_lo%llim_proc:), intent (in out) :: gout
 
     complex, dimension (:,:,:,:,:), allocatable :: g0, g0y
-    
+
     if (proc0) call time_message(.false.,time_gke(:,6),' wstar advance')
 
     allocate (g0(naky,nakx,-nzgrid:nzgrid,ntubes,vmu_lo%llim_proc:vmu_lo%ulim_alloc))
