@@ -921,6 +921,7 @@ contains
     implicit none
 
     integer, intent (in) :: istep
+    logical :: restart_time_step, time_advance_successful
 
     if(.not.RK_step) then
       if (debug) write (*,*) 'time_advance::multibox'
