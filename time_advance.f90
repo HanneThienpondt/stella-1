@@ -1325,7 +1325,7 @@ contains
     use fields, only: fields_updated, advance_fields
     implicit none
 
-    complex, dimension (:,:,-nzgrid:,:,vmu_lo%llim_proc:), intent (in) :: gold
+    complex, dimension (:,:,-nzgrid:,:,vmu_lo%llim_proc:), intent (in out) :: gold ! Change back to in
     complex, dimension (:,:,-nzgrid:,:,vmu_lo%llim_proc:), intent (in out) :: golder
     logical, intent (in out)  :: restart_time_step
 
@@ -1335,7 +1335,6 @@ contains
     ! then must modify time step size and restart time step
     ! assume false and test
     restart_time_step = .false.
-    !write(*,*) "In advance_leapfrog"
     ! Get the fields corresponding to g(i)
     call advance_fields (gold, phi, apar, dist='gbar')
     ! There are 2 different "flavours" of leapfrog option we can use:
@@ -1348,7 +1347,7 @@ contains
         call advance_ExB_nonlinearity_exact (gold, golder)
       else
         call advance_ExB_nonlinearity_nisl (gold, golder)
-        stop "STOPPING"
+        !stop "Stopping"
       end if
       fields_updated = .false.
     else
@@ -1550,7 +1549,7 @@ contains
 
     implicit none
 
-    complex, dimension (:,:,-nzgrid:,:,vmu_lo%llim_proc:), intent (in) :: gin
+    complex, dimension (:,:,-nzgrid:,:,vmu_lo%llim_proc:), intent (in out) :: gin ! Change back to in
     complex, dimension (:,:,-nzgrid:,:,vmu_lo%llim_proc:), intent (out), target :: rhs_ky
     logical, intent (in out) :: restart_time_step
 
@@ -1842,7 +1841,7 @@ contains
 
     implicit none
 
-    complex, dimension (:,:,-nzgrid:,:,vmu_lo%llim_proc:), intent (in) :: g
+    complex, dimension (:,:,-nzgrid:,:,vmu_lo%llim_proc:), intent (in out) :: g ! Chnage back to in
     complex, dimension (:,:,-nzgrid:,:,vmu_lo%llim_proc:), intent (in out) :: gout
     logical, intent (out) :: restart_time_step
 
@@ -1852,7 +1851,7 @@ contains
     real, dimension (:,:), allocatable :: g0xy, g1xy, bracket
 
     integer :: ivmu, iz, it, ia, imu, is
-    logical :: yfirst
+    logical :: yfirst, write_diags
 
     ! alpha-component of magnetic drift (requires ky -> y)
     if (proc0) call time_message(.false.,time_gke(:,7),' ExB nonlinear advance')
@@ -1875,6 +1874,11 @@ contains
       allocate (g0xky(naky,nx))
     endif
 
+    ! g=0
+    ! g(2,1,2,1,1) = 1
+    ! phi = 0
+    ! phi(2,1,2,1) = 40
+    ! write_diags = .false.
     ! write(*,*) "BEFORE. gout(1,:,2,1,1) = ", gout(1,:,2,1,1)
     ! write(*,*) "BEFORE. gout(2,:,2,1,1) = ", gout(2,:,2,1,1)
     ! write(*,*) "BEFORE. gout(3,:,2,1,1) = ", gout(3,:,2,1,1)
@@ -1899,6 +1903,11 @@ contains
        is = is_idx(vmu_lo,ivmu)
        do it = 1, ntubes
           do iz = -nzgrid, nzgrid
+             if ((ivmu == 1) .and. (iz == 2)) then
+               write_diags = .true.
+             else
+               write_diags = .false.
+             end if
              ! write(*,*) "BEFORE. gout(:,:,iz,it,ivmu) = ", gout(:,:,iz,it,ivmu)
              ! write(*,*) "g(:,:,iz,it,ivmu) = ", g(:,:,iz,it,ivmu)
              ! write(*,*) "phi(:,:,iz,it) = ", phi(:,:,iz,it)
@@ -1947,6 +1956,7 @@ contains
              else
                g1xy = g1xy*exb_nonlin_fac
                bracket = bracket - g0xy*g1xy
+               !if (write_diags) write(*,*) "bracket = ", bracket
              end if
 
              cfl_dt = min(cfl_dt,2.*pi/(maxval(abs(g1xy))*akx(ikx_max)))
@@ -2057,6 +2067,7 @@ contains
     ! write(*,*) "gout(2,:,2,1,1) = ", gout(2,:,2,1,1)
     ! write(*,*) "gout(3,:,2,1,1) = ", gout(3,:,2,1,1)
     ! write(*,*) "gout(4,:,2,1,1) = ", gout(4,:,2,1,1)
+    ! write(*,*) "gout(5,:,2,1,1) = ", gout(5,:,2,1,1)
 
     if (proc0) call time_message(.false.,time_gke(:,7),' ExB nonlinear advance')
 
@@ -2194,7 +2205,7 @@ contains
     use run_parameters, only: fphi
     use physics_flags, only: override_vexb, vexb_x, vexb_y
     use physics_parameters, only: g_exb, g_exbfac
-    use run_parameters, only: add_nl_source_in_real_space, no_extra_padding
+    use run_parameters, only: add_nl_source_in_real_space, no_extra_padding, ignore_departure_point
     use zgrid, only: nzgrid, ntubes
     use stella_geometry, only: exb_nonlin_fac, gfac, dxdXcoord, dydalpha
     use kt_grids, only: nakx, naky, nx, ny, ikx_max
@@ -2206,7 +2217,7 @@ contains
 
     implicit none
 
-    complex, dimension (:,:,-nzgrid:,:,vmu_lo%llim_proc:), intent (in) :: gold
+    complex, dimension (:,:,-nzgrid:,:,vmu_lo%llim_proc:), intent (in out) :: gold ! Change back to in
     complex, dimension (:,:,-nzgrid:,:,vmu_lo%llim_proc:), intent (in out) :: golder
     logical, optional, intent(in) :: single_step  ! First timestep or from restart needs the single-step version
 
@@ -2215,9 +2226,9 @@ contains
     complex, dimension (:,:), allocatable :: g0kxy, g0kxy_extra_padding
     real, dimension (:,:), allocatable :: vchiold_x, vchiold_y, dgold_dy, dgold_dx, golderxy, gnewxy, dgold_dx_normal, dgold_dy_normal, rhs_array!, bracket
 
-    integer :: ivmu, iz, it, ia, imu, is, ix, iy, p, q, xidx_departure, yidx_departure, yidx_for_upsampled_array, xidx_for_upsampled_array
+    integer :: ivmu, iz, it, ia, imu, is, ix, iy, iiy, p, q, xidx_departure, yidx_departure, yidx_for_upsampled_array, xidx_for_upsampled_array
     integer :: upsampled_xidx, upsampled_yidx
-    logical :: yfirst
+    logical :: yfirst, write_diags
     logical :: single_step_local
     real :: y_departure, x_departure, yval, xval, rhs, velocity_x, velocity_y
     real :: max_velocity_x, max_velocity_y
@@ -2257,19 +2268,34 @@ contains
     ! write(*,*) "dx, dy, x0, y0 = ", dx, dy, x0, y0
     ! stop "Stopping now"
     !write(*,*) ""
-    write(*,*) "BEFORE"
-    write(*,*) "golder(1,:,2,1,1) = ", golder(1,:,2,1,1)
-    write(*,*) "golder(2,:,2,1,1) = ", golder(2,:,2,1,1)
-    write(*,*) "golder(3,:,2,1,1) = ", golder(3,:,2,1,1)
-    write(*,*) "golder(4,:,2,1,1) = ", golder(4,:,2,1,1)
-    write(*,*) "gold(1,:,2,1,1) = ", gold(1,:,2,1,1)
-    write(*,*) "gold(2,:,2,1,1) = ", gold(2,:,2,1,1)
-    write(*,*) "gold(3,:,2,1,1) = ", gold(3,:,2,1,1)
-    write(*,*) "gold(4,:,2,1,1) = ", gold(4,:,2,1,1)
-    write(*,*) "phi(1,:,2,1) = ", phi(1,:,2,1)
-    write(*,*) "phi(2,:,2,1) = ", phi(2,:,2,1)
-    write(*,*) "phi(3,:,2,1) = ", phi(3,:,2,1)
-    write(*,*) "phi(4,:,2,1) = ", phi(4,:,2,1)
+    !! Setting ky=0,kx=kxmin; kyidx=0, kxidx=2
+    golder = 0
+    golder(2,2,2,1,1) = 1
+    ! golder(1,7,2,1,1) = 2
+    gold = 0
+    gold(2,2,2,1,1) = 1
+    ! gold(1,7,2,1,1) = 1
+    phi = 0
+    phi(2,2,2,1) = 20
+    ! phi(1,7,2,1) = 40
+    ! write(*,*) "BEFORE"
+    ! write(*,*) "golder(1,:,2,1,1) = ", golder(1,:,2,1,1)
+    ! write(*,*) "golder(2,:,2,1,1) = ", golder(2,:,2,1,1)
+    ! write(*,*) "golder(3,:,2,1,1) = ", golder(3,:,2,1,1)
+    ! write(*,*) "golder(4,:,2,1,1) = ", golder(4,:,2,1,1)
+    ! write(*,*) "golder(5,:,2,1,1) = ", golder(5,:,2,1,1)
+    ! write(*,*) "gold(1,:,2,1,1) = ", gold(1,:,2,1,1)
+    ! write(*,*) "gold(2,:,2,1,1) = ", gold(2,:,2,1,1)
+    ! write(*,*) "gold(3,:,2,1,1) = ", gold(3,:,2,1,1)
+    ! write(*,*) "gold(4,:,2,1,1) = ", gold(4,:,2,1,1)
+    ! write(*,*) "gold(5,:,2,1,1) = ", gold(5,:,2,1,1)
+    ! write(*,*) "phi(1,:,2,1) = ", phi(1,:,2,1)
+    ! write(*,*) "phi(2,:,2,1) = ", phi(2,:,2,1)
+    ! write(*,*) "phi(3,:,2,1) = ", phi(3,:,2,1)
+    ! write(*,*) "phi(4,:,2,1) = ", phi(4,:,2,1)
+    ! write(*,*) "phi(5,:,2,1) = ", phi(5,:,2,1)
+    !write(*,*) "apar(2,:,2,1) = ", apar(2,:,2,1)
+
     ia=1
     ! write(*,*) "BEFORE golder(3,3,iz=0,it=1,ivmu=0) = ", golder(3,3,0,1,0)
     ! write(*,*) "BEFORE gold(3,3,iz=0,it=1,ivmu=0) = ", gold(3,3,0,1,0)
@@ -2278,6 +2304,11 @@ contains
       is = is_idx(vmu_lo,ivmu)
       do it = 1, ntubes
         do iz = -nzgrid, nzgrid
+          if ((iz == 2) .and. (ivmu == 1) .and. (it == 1)) then
+            write_diags = .true.
+          else
+            write_diags = .false.
+          end if
 
           ! Need to do the following:
           ! 1) Get dgold/dx(x,y), dgold/dy(x,y), vchiold_x(x,y), vchiold_y(x,y)
@@ -2292,6 +2323,16 @@ contains
             call forward_transform(g0k,dgold_dy_normal)
           else
             call forward_transform_extra_padding(g0k,dgold_dy)
+            !if (write_diags) write(*,*) "dgold_dy (x,y) = ", dgold_dy
+            ! if (write_diags) then
+            !   write(*,*) "dx, dy = ", dx, dy
+            !   write(*,*) "y = ", y
+            !   write(*,*) "x = ", x
+            !   write(*,*) "dgold_dy: "
+            !   do iiy = 1,ny
+            !     write(*,*) , dgold_dy(iiy,:)
+            !   end do
+            ! end if
           end if
           ! For testing - get dg/dy in the non-upsampled and upsampled forms and print
           ! call forward_transform(g0k,golderxy)
@@ -2301,25 +2342,49 @@ contains
 
           call get_dchidx (iz, ivmu, phi(:,:,iz,it), apar(:,:,iz,it), g0k)
           call forward_transform(g0k,vchiold_y)
-
           ! NB we haven't flipped the signs (in contrast to advance_exb_nonlinearity)
           ! because this is the actual velocity - we haven't moved to the RHS yet.
           vchiold_y = -vchiold_y*exb_nonlin_fac
-
+          !if (write_diags) write(*,*) "vchiold_y (x,y) = ", vchiold_y
+          ! if (write_diags) then
+          !   write(*,*) "vchiold_y: "
+          !   do iiy = 1,ny
+          !     write(*,*) , vchiold_y(iiy,:)
+          !   end do
+          ! end if
           call get_dgdx (gold(:,:,iz,it,ivmu), g0k)
           if (no_extra_padding) then
             call forward_transform(g0k,dgold_dx_normal)
           else
             call forward_transform_extra_padding(g0k,dgold_dx)
+            ! if (write_diags) then
+            !   write(*,*) "dgold_dx: "
+            !   do iiy = 1,ny
+            !     write(*,*) , dgold_dx(iiy,:)
+            !   end do
+            ! end if
+            !if (write_diags) write(*,*) "dgold_dx (x,y) = ", dgold_dx
           end if
           call get_dchidy (iz, ivmu, phi(:,:,iz,it), apar(:,:,iz,it), g0k)
           call forward_transform(g0k,vchiold_x)
 
           vchiold_x = vchiold_x*exb_nonlin_fac
+          ! if (write_diags) then
+          !   write(*,*) "vchiold_x: "
+          !   do iiy = 1,ny
+          !     write(*,*) , vchiold_x(iiy,:)
+          !   end do
+          ! end if
+          !if (write_diags) write(*,*) "vchiold_x (x,y) = ", vchiold_x
 
           ! Step 2) Get golder(x,y)
           call forward_transform(golder(:,:,iz,it,ivmu),golderxy)
-
+          ! if (write_diags) then
+          !   write(*,*) "Before golderxy: "
+          !   do iiy = 1,ny
+          !     write(*,*) , golderxy(iiy,:)
+          !   end do
+          ! end if
           ! if ((iz == 1) .and. (ivmu == 1) ) then
           !   write(*,*) "maxval(abs(dgold_dx)), maxval(abs(dgold_dy)) = ", maxval(abs(dgold_dx)), maxval(abs(dgold_dy))
           ! end if
@@ -2347,6 +2412,7 @@ contains
             !write(*,*) "vchiold_y, vchiold_x = ", vchiold_y, vchiold_x
           end if
           ! Step 3) Calculate departure points, and hence velocities and p, q
+          ignore_departure_point = .true.
           do iy = 1, ny
             do ix = 1, nx
               ! yval = y(iy)
@@ -2356,11 +2422,38 @@ contains
                 velocity_y = vexb_y
                 x_departure = x(ix) - 2*velocity_x*code_dt
                 y_departure = y(iy) - 2*velocity_y*code_dt
+              else if (ignore_departure_point) then
+                velocity_x = vchiold_x(iy, ix)
+                velocity_y = vchiold_y(iy, ix)
+                x_departure = x(ix) -velocity_x*2*code_dt
+                y_departure = y(iy) -velocity_y*2*code_dt
+                p = nint((x(ix) - x_departure)/dx)
+                q = nint((y(iy) - y_departure)/dy)
+                ! if (write_diags) then
+                !   write(*,*) "A velocity_x, velocity_y, x, y, x_departure, y_departure = ", velocity_x, velocity_y, x(ix), y(iy), x_departure, y_departure
+                !   velocity_x = (x(ix) - x_departure)/(2*code_dt)
+                !   velocity_y = (y(iy) - y_departure)/(2*code_dt)
+                !   write(*,*) "B velocity_x, velocity_y, x, y, x_departure, y_departure = ", velocity_x, velocity_y, x(ix), y(iy), x_departure, y_departure
+                ! end if
               else
+                !stop "Unexpected!"
                 call get_approx_departure_point(vchiold_y, vchiold_x, iy, ix, y_departure, x_departure, single_step_local)
                 !write(*,*) "y,x,y_departure,x_departure) = ", y(iy),x(ix),y_departure,x_departure
-                velocity_x = (x(ix) - x_departure)/(2*code_dt)
-                velocity_y = (y(iy) - y_departure)/(2*code_dt)
+                p = nint((x(ix) - x_departure)/dx)
+                q = nint((y(iy) - y_departure)/dy)
+                if ((p == 0) .and. (q == 0) ) then
+                  ! Avoid machine precision error by not calculating velocity_x, velocity_y
+                  !if (write_diags) write(*,*) "Here."
+                  velocity_x = vchiold_x(iy,ix)
+                  velocity_y = vchiold_y(iy,ix)
+                else
+                  velocity_x = (x(ix) - x_departure)/(2*code_dt)
+                  velocity_y = (y(iy) - y_departure)/(2*code_dt)
+                end if
+                ! if (write_diags) then
+                !   write(*,*) "velocity_x, velocity_y, (velocity_x - v_x), (velocity_y - v_y), ix, iy, = ", &
+                !                velocity_x, velocity_y, (velocity_x - vchiold_x(iy,ix)), (velocity_y - vchiold_y(iy,ix)), ix, iy
+                ! end if
               end if
 
               ! Check velocities are sensible
@@ -2375,8 +2468,11 @@ contains
                   stop "Aborting"
                 end if
               end if
-              p = nint((x(ix) - x_departure)/dx)
-              q = nint((y(iy) - y_departure)/dy)
+
+              if (((p /= 0) .or. (q /= 0) ) .and. write_diags) then
+                write(*,*) "p,q = ", p,q
+                stop "Stopping"
+              end if
 
               if (override_vexb) then
                 if (p == 0) then
@@ -2416,12 +2512,31 @@ contains
                 xidx_for_upsampled_array = modulo((2*ix - 2*p - 2),(2*nx)) + 1
                 yidx_for_upsampled_array = modulo((2*iy - 2*q - 2),(2*ny)) + 1
               else
-                ! These idxs are halfway between the 2 time locations (tolder, tnew)
-                ! So e.g. for ix=10, p=1, we'd want xidx_departure=9 and
-                ! xidx_for_upsampled_array = 19, because the upsampled idxs
-                ! for ix=10 and 9 are 20 and 18 respectively.
-                ! So the formula is xidx_for_upsampled_array=(2*ix - p), but correctly moduloed such that
-                ! it lies in the range (1,2,3,...,2*nx)
+                !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+                ! OLD
+                ! ! These idxs are halfway between the 2 time locations (tolder, tnew)
+                ! ! So e.g. for ix=10, p=1, we'd want xidx_departure=9 and
+                ! ! xidx_for_upsampled_array = 19, because the upsampled idxs
+                ! ! for ix=10 and 9 are 20 and 18 respectively.
+                ! ! So the formula is xidx_for_upsampled_array=(2*ix - p), but correctly moduloed such that
+                ! ! it lies in the range (1,2,3,...,2*nx)
+                ! xidx_for_upsampled_array = modulo((2*ix - p - 2),(2*nx)) + 1
+                ! yidx_for_upsampled_array = modulo((2*iy - q - 2),(2*ny)) + 1
+                !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+                ! New
+                ! xidx and xidx_upsampled correspond to each other as
+                ! xidx_upsampled = xidx*2-1
+                ! e.g. xidx = (1,2,3,4,5); xidx_upsampled = (1,2,3,4,5,6,7,8,9,10)
+                ! with
+                ! xidx=1 the same physical location as xidx_upsampled=1
+                ! xidx=2 the same physical location as xidx_upsampled=3
+                ! xidx=3 the same physical location as xidx_upsampled=5
+                ! etc.
+                ! So e.g. for ix=10, p=1, we'd want xidx_departure=9.
+                ! The upsampled idxs for ix=10 and 9 are 19 and 17 respectively.
+                ! So want xidx_for_upsampled_array = 18
+                ! So the formula is xidx_for_upsampled_array=(2*ix-1-p),
+                ! but correctly moduloed such that it lies in the range (1,2,3,...,2*nx)
                 xidx_for_upsampled_array = modulo((2*ix - p - 2),(2*nx)) + 1
                 yidx_for_upsampled_array = modulo((2*iy - q - 2),(2*ny)) + 1
               end if
@@ -2465,19 +2580,20 @@ contains
                 if (.not. no_extra_padding) then
                   !! "Correct" RHS implementation; use upsampled dg/dx, dg/dy
                   ! -ve sign because it's on the RHS
+                  !vres()
                   rhs = - 2*code_dt*(velocity_x * dgold_dx(yidx_for_upsampled_array, xidx_for_upsampled_array) &
                           + velocity_y * dgold_dy(yidx_for_upsampled_array, xidx_for_upsampled_array) )
                 else
                   !! Implementation which should be equivalent to the "Leapfrog" implementation
                   !! Only valid if no SL
-                  if ((p .ne. 0) .or. (q .ne. 0)) then
-                    write(*,*) "p, q = ", p, q
-                    stop "stopping"
-                  end if
-                  if ((yidx_departure .ne. iy) .or. (xidx_departure .ne. ix) ) then
-                    write(*,*) "yidx_departure, iy, xidx_departure, ix = ", yidx_departure, iy, xidx_departure, ix
-                    stop "stopping"
-                  end if
+                  ! if ((p .ne. 0) .or. (q .ne. 0)) then
+                  !   write(*,*) "p, q = ", p, q
+                  !   stop "stopping"
+                  ! end if
+                  ! if ((yidx_departure .ne. iy) .or. (xidx_departure .ne. ix) ) then
+                  !   write(*,*) "yidx_departure, iy, xidx_departure, ix = ", yidx_departure, iy, xidx_departure, ix
+                  !   stop "stopping"
+                  ! end if
                   rhs = -2*code_dt*(velocity_x * dgold_dx_normal(iy, ix) &
                           + velocity_y * dgold_dy_normal(iy, ix) )
                 end if
@@ -2496,7 +2612,12 @@ contains
               ! gnewxy(iy, ix) = golderxy(yidx_departure, xidx_departure) + rhs(iy,ix)
             end do
           end do
-          !stop "Stopping early"
+          ! if (write_diags) then
+          !   write(*,*) "gnewxy: "
+          !   do iiy = 1,ny
+          !     write(*,*) , gnewxy(iiy,:)
+          !   end do
+          ! end if
           !! Invert to get golder(kx,ky)
           call transform_x2kx (gnewxy, g0kxy)
           call transform_y2ky (g0kxy, g0k_swap)
@@ -2515,16 +2636,16 @@ contains
           end if
           !write(*,*) "rhs_array_fourier = ", rhs_array_fourier
           !write(*,*) "maxval(abs((delta g (Fourier) - rhs (Fourier))/rhs (Fourier)))) = ", maxval(abs((g0k - rhs_array_fourier)/rhs_array_fourier))
-          ! stop "Stopping early"
         end do
       end do
-      ! ! enforce periodicity for zonal mode
-      ! ! FLAG -- THIS IS PROBABLY NOT NECESSARY (DONE AT THE END OF EXPLICIT ADVANCE)
-      ! ! AND MAY INDEED BE THE WRONG THING TO DO
+      ! enforce periodicity for zonal mode
+      ! FLAG -- THIS IS PROBABLY NOT NECESSARY (DONE AT THE END OF EXPLICIT ADVANCE)
+      ! AND MAY INDEED BE THE WRONG THING TO DO
       golder(1,:,-nzgrid,:,ivmu) = 0.5*(golder(1,:,nzgrid,:,ivmu)+golder(1,:,-nzgrid,:,ivmu))
       golder(1,:,nzgrid,:,ivmu) = golder(1,:,-nzgrid,:,ivmu)
-      !golder(1,1,:,:,ivmu) = 0
+      golder(1,1,:,:,ivmu) = 0
     end do
+    stop "Stopping early"
 
     deallocate (g0k, dgold_dx, dgold_dy, vchiold_x, vchiold_y, golderxy)
     if (allocated(g0k_swap)) deallocate(g0k_swap)
@@ -2541,11 +2662,12 @@ contains
     if (proc0) call time_message(.false.,time_gke(:,7),' ExB nonlinear advance, nisl')
     !stop "Finished the NISL advance"
 
-    write(*,*) "AFTER"
-    write(*,*) "golder(1,:,2,1,1) = ", golder(1,:,2,1,1)
-    write(*,*) "golder(2,:,2,1,1) = ", golder(2,:,2,1,1)
-    write(*,*) "golder(3,:,2,1,1) = ", golder(3,:,2,1,1)
-    write(*,*) "golder(4,:,2,1,1) = ", golder(4,:,2,1,1)
+    ! write(*,*) "AFTER"
+    ! write(*,*) "gnew(1,:) = ", golder(1,:,2,1,1)
+    ! write(*,*) "gnew(2,:) = ", golder(2,:,2,1,1)
+    ! write(*,*) "gnew(3,:) = ", golder(3,:,2,1,1)
+    ! write(*,*) "gnew(4,:) = ", golder(4,:,2,1,1)
+    ! write(*,*) "gnew(5,:) = ", golder(5,:,2,1,1)
 
     contains
 

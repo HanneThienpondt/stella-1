@@ -27,6 +27,7 @@ module run_parameters
   public :: no_extra_padding
   public :: exact_exb_nonlinear_solution
   public :: exact_exb_nonlinear_solution_first_step
+  public :: ignore_departure_point
 
   private
 
@@ -45,6 +46,7 @@ module run_parameters
   logical :: no_extra_padding
   logical :: leapfrog_nonlinear, leapfrog_drifts
   logical :: nisl_nonlinear
+  logical :: ignore_departure_point
   LOGICAL :: fields_kxkyz, mat_gen, mat_read
   logical :: ky_solve_real
   logical :: exact_exb_nonlinear_solution
@@ -106,7 +108,7 @@ contains
          zed_upwind, vpa_upwind, time_upwind, &
          fields_kxkyz, mat_gen, mat_read, rng_seed, mirror_semi_lagrange_non_interp, no_advection_option, &
          ky_solve_radial, ky_solve_real, leapfrog_nonlinear, leapfrog_drifts, nisl_nonlinear, add_nl_source_in_real_space, &
-         no_extra_padding, exact_exb_nonlinear_solution, exact_exb_nonlinear_solution_first_step
+         no_extra_padding, exact_exb_nonlinear_solution, exact_exb_nonlinear_solution_first_step, ignore_departure_point
 
     if (proc0) then
        fphi = 1.0
@@ -143,6 +145,7 @@ contains
        mat_read = .false.
        exact_exb_nonlinear_solution = .false.
        exact_exb_nonlinear_solution_first_step = .false.
+       ignore_departure_point = .false.
 
        in_file = input_unit_exist("knobs", knexist)
        if (knexist) read (unit=in_file, nml=knobs)
@@ -210,6 +213,7 @@ contains
     call broadcast (no_extra_padding)
     call broadcast (exact_exb_nonlinear_solution)
     call broadcast (exact_exb_nonlinear_solution_first_step)
+    call broadcast (ignore_departure_point)
 
     if (.not.include_mirror) mirror_implicit = .false.
     if (.not.include_parallel_streaming) stream_implicit = .false.
